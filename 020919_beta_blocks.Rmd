@@ -1,0 +1,255 @@
+---
+title: "311 Data Exploration"
+author: "Myeong Lee"
+date: "9/30/2016"
+output: html_document
+---
+
+
+```{r, echo=FALSE}
+library(maps)
+library(geosphere)
+library(readr)
+library(dplyr)
+library(magrittr)
+library(lubridate)
+library(rgdal)
+library(raster)
+library(rgeos)
+require(ggplot2)
+library(cwhmisc)
+library(utils)
+library(rpart)
+library(stringr)
+library(hydroGOF)
+library(fields)
+library(MASS)
+library(tidyr)
+library(raster)
+library(reshape2)
+library(igraph)
+library(Hmisc)
+library(randomForest)
+library(caret)
+library(leaflet)
+library(RColorBrewer)
+library(classInt)
+library(maptools)
+library(ggmap)
+
+register_google(key="AIzaSyD36Jq79omYvK4q160enCpKcdzeuhlCu7U")
+```
+
+# Random Baseline
+```{r, echo=FALSE, fig.width=10,fig.height=11}
+setwd("/Users/myeong/git/311/")
+
+cases = read_delim("dataverse_files/311_open.csv", delim = ",",col_names = TRUE )
+
+# Just for testing...
+# sids <- sample(cases$case_enquiry_id, 1000)
+# cases <- cases[cases$case_enquiry_id %in% sids,]
+cases$neighborhood <- as.factor(cases$neighborhood) #22 neighborhoods
+cases$type <- as.factor(cases$type) #123 types
+cases$reason <- as.factor(cases$reason) #28 reasons
+cases$source <- as.factor(cases$source) #6 sources
+cases$department <- as.factor(cases$department) #8 departments
+cases$subject <- as.factor(cases$subject) #6 subjects
+
+neighborhood <- readOGR("Bos_neighborhoods/Bos_neighborhoods.shp", layer="Bos_neighborhoods") %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84"))
+
+idList <- neighborhood@data$OBJECTID
+centroids.df <- as.data.frame(coordinates(neighborhood))
+names(centroids.df) <- c("Longitude", "Latitude")  
+nameList <- neighborhood@data$Name
+neighbor.df <- data.frame(id = idList, name = nameList, centroids.df)
+
+# Aggregating neighborhood names based on overlaps
+cases[cases$neighborhood %in% "Allston",]$neighborhood <- "Allston / Brighton"
+cases[cases$neighborhood %in% "Brighton",]$neighborhood <- "Allston / Brighton"
+cases$neighborhood <- as.character(cases$neighborhood)
+cases$neighborhood <- as.factor(cases$neighborhood)
+
+map <- ggmap::get_map(location=c(-71.09, 42.305), zoom = 12, color = "bw")
+# map <- ggmap::get_map(location=c(-71.09, 42.34), zoom = 13, color = "bw")
+mapPoints <- ggmap(map) + 
+  geom_polygon(aes(x=long, y=lat, group=group), data = neighborhood, color='red', alpha=0.4) +
+  geom_point(aes(x = longitude, y = latitude, colour=neighborhood), data = cases, alpha=0.5, size=1) +
+  geom_text(data=neighbor.df, aes(label = name, x = Longitude, y = Latitude)) +
+  ggtitle("311 Cases") 
+  theme(legend.position="bottom")
+mapPoints
+
+
+```
+
+
+# 1. Types of 311 inquiries
+```{r, fig.width=10,fig.height=11}
+
+reasons <- cases %>% group_by(reason) %>% summarise(count=n())
+reasons <- reasons[order(-reasons$count),]
+ggplot(data=reasons, aes(x= reorder(reason,count),count)) +geom_bar(stat="identity") + 
+  xlab("Categories (high-level)") + ggtitle("Categories of 311 Inquiries") + coord_flip()
+
+
+types <- cases %>% group_by(type) %>% summarise(count=n())
+types <- types[order(-types$count),]
+ggplot(data=types[1:30,], aes(x= reorder(type,count),count)) +geom_bar(stat="identity") + 
+  xlab("Types (specific types of problems)") + ggtitle("Specific Types of 311 Inquiries (top-30)") + coord_flip()
+
+# All types
+print(types$type)
+
+subjects <- cases %>% group_by(subject) %>% summarise(count=n())
+subjects <- subjects[order(-subjects$count),]
+ggplot(data=subjects, aes(x= reorder(subject,count),count)) +geom_bar(stat="identity") + 
+  xlab("Subjects (Subjects of problems)") + ggtitle("Departments that were assigned cases") + coord_flip()
+
+sources <- cases %>% group_by(source) %>% summarise(count=n())
+sources <- sources[order(-sources$count),]
+ggplot(data=sources, aes(x= reorder(source,count),count)) +geom_bar(stat="identity") + 
+  xlab("Reporting Mechanisms") + ggtitle("311 Reporting Source") + coord_flip()
+
+```
+
+### 1-1. Examples of Inquiries and Reasons for Closure (random 30 samples)
+```{r}
+sample_ids <- sample(cases$case_enquiry_id, 30)
+
+for (i in sample_ids){
+  text <- paste0 (cases[cases$case_enquiry_id==i,]$case_title, ": ", cases[cases$case_enquiry_id==i,]$closure_reason)
+  print(text)
+}
+
+```
+
+# 2. Inquiries across Different Neighborhoods
+```{r, fig.width=10,fig.height=11}
+neigh <- cases %>% group_by(neighborhood, reason) %>% summarise(count=n())
+neigh <- neigh[order(-neigh$count),]
+colorCount <- length(levels(neigh$reason))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+
+ggplot(data=neigh, aes(x= reorder(neighborhood,count), count, fill=reason)) +geom_bar(stat="identity", color="black")+
+  xlab("Number of cases by reason") + ggtitle("Inquiry Reason by Neighborhood") + coord_flip() +  
+  theme(legend.position="bottom") + scale_fill_manual(values = getPalette(colorCount))
+```
+
+### 2-1. Most wide-spread reasons and types of problems by neighborhood
+```{r}
+most <- neigh %>% group_by(neighborhood) %>% summarise (max = max(count), reason=first(reason))
+colnames(most) <- c("Neighborhood", "max", "Most Siginificant Reason")
+
+for (i in 1:nrow(most)){
+  print(paste0 (most[i,]$Neighborhood, ": ", most[i,]$`Most Siginificant Reason`))
+}
+
+```
+
+
+# 3. Numbers and types of individuals
+This statistics cannot be analyzed because there's no data about individuals available in the public dataset (this is possible from restricted 311 datasets).
+
+# 4. Relationships between 311 Inquiries and Socio-Economic Status
+```{r, echo=FALSE, fig.width=10,fig.height=11}
+socioeconomic <- readOGR("Climate_Ready_Boston_Social_Vulnerability/Climate_Ready_Boston_Social_Vulnerability.shp",
+                        layer="Climate_Ready_Boston_Social_Vulnerability") %>%
+  spTransform(CRS("+proj=longlat +datum=WGS84"))
+socioeconomic@data$Low_to_No <- as.numeric(socioeconomic@data$Low_to_No)
+socioeconomic@data$POP100_RE <- as.numeric(socioeconomic@data$POP100_RE)
+socioeconomic@data$norm_low <- socioeconomic@data$Low_to_No / socioeconomic@data$POP100_RE
+
+
+lnd <- SpatialPolygonsDataFrame(Sr = spTransform(socioeconomic, CRSobj = CRS("+init=epsg:4326")), 
+                                data = socioeconomic@data)
+lnd.f <- fortify(lnd)
+lnd$id <- row.names(lnd)
+lnd.f <- left_join(lnd.f, lnd@data, by=("id"))
+lnd.f$norm_low <- log(lnd.f$norm_low) 
+
+map <- ggmap::get_map(location=c(-71.09, 42.305), zoom = 12, color = "bw")
+# map <- ggmap::get_map(location=c(-71.09, 42.34), zoom = 13, color = "bw")
+mapPoints <- ggmap(map) + 
+  geom_polygon(aes(x=long, y=lat, group=group, fill=norm_low), data = lnd.f, color='black') +
+  scale_fill_continuous(low = "lightyellow", high = "red", name = "Low income density") + 
+  ggtitle("Low-to-No Income Population (normalized) by Census Tract (The more red, the more low income population)") 
+  # theme(legend.position="bottom")
+mapPoints
+```
+
+### 4-1. Neighborhood-level Low-to-No Income Population
+```{r, echo=FALSE, fig.width=10,fig.height=11}
+
+pa1 <- aggregate(lnd, by='Name', sums=list(list(sum, 'POP100_RE'), list(sum, 'Low_to_No')))
+pa1.f <- fortify(pa1)
+pa1$id <- row.names(pa1)
+pa1.f <- left_join(pa1.f, pa1@data, by=("id"))
+pa1.f$norm_low <- log(pa1.f$Low_to_No / pa1.f$POP100_RE )
+
+map <- ggmap::get_map(location=c(-71.09, 42.305), zoom = 12, color = "bw")
+mapPoints <- ggmap(map) + 
+  geom_polygon(aes(x=long, y=lat, group=group, fill=norm_low), data = pa1.f, color='black') +
+  scale_fill_continuous(low = "lightyellow", high = "red", name = "Low income density") + 
+  ggtitle("Low-to-No Income Population (normalized) by Neigbhorhood") 
+mapPoints
+```
+
+### 4-2. How inqury types differ depending on neighborhood's poverty level?
+```{r, echo=FALSE, fig.width=10,fig.height=11}
+xy <- cases[,c("longitude","latitude")]
+points <- SpatialPointsDataFrame(coords = xy, data = cases,
+                               proj4string = CRS("+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"))
+
+agg_table <- as.data.frame(matrix(nrow=0, ncol=4))
+colnames(agg_table) <- c("id", "norm_low", "reason", "count")
+
+for (i in socioeconomic$FID){
+  tryCatch({
+          intersection <- raster::intersect(x = points, y = socioeconomic[socioeconomic$FID==i,])
+        }, error = function(e) {
+          print(paste0("Iteration ", i, ": ", e))
+          return()
+        })
+  if (nrow(intersection@data) == 0) next
+  
+  norm_low <- socioeconomic[socioeconomic$FID==i,]$norm_low
+  
+  # Count the number of reasons of reporting per census tract
+  agg <- intersection@data %>% group_by(reason) %>% summarise(count = n())
+  agg$norm_low <- norm_low
+  agg$id <- i
+  
+  agg_table <- rbind(agg_table, agg[,c("id", "norm_low", "reason", "count")])
+}
+
+ggplot(agg_table, aes(x=reorder(reason,norm_low), y=norm_low)) + geom_boxplot() + ylim(c(0,5)) + 
+  geom_point() + ylab("Normalized Poverty Level (The higher, the poorer)") + coord_flip() + xlab("Inquiry Reason")
+
+# Multivariate ANOVA
+summary(aov(norm_low ~ reason, data=agg_table))
+```
+
+
+### 4-3. How much the number of inqury differs depending on poverty level
+```{r, echo=FALSE}
+norm_lows <- agg_table %>% group_by(id) %>% summarise(norm_low=max(norm_low)) 
+quantiles <- summary(norm_lows$norm_low)
+norm_lows$class <- ""
+norm_lows[norm_lows$norm_low < quantiles[2],]$class <- "Lowest"
+norm_lows[norm_lows$norm_low >= quantiles[2] & norm_lows$norm_low < quantiles[3],]$class <- "Mid-Low"
+norm_lows[norm_lows$norm_low >= quantiles[3] & norm_lows$norm_low < quantiles[4],]$class <- "Mid-High"
+norm_lows[norm_lows$norm_low >= quantiles[4],]$class <- "Highest"
+
+agg_table_class <- agg_table %>% left_join(norm_lows[,c("id", "class")], by=c("id"))
+agg_table_class$class <- as.factor(agg_table_class$class)
+agg_table_class <- agg_table_class %>% group_by(id) %>% summarise(count = n(), class=first(class))
+
+# Multivariate ANOVA
+summary(aov(count ~ class, data=agg_table_class))
+
+ggplot(agg_table_class, aes(x=reorder(class,count), y=count)) + geom_boxplot()  + 
+  geom_point() + ylab("The number of 311 Inquiries")  + xlab("Poverty Class (4-levels)")
+```
+

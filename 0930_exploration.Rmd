@@ -1,0 +1,110 @@
+---
+title: "311 Data Exploration"
+author: "Myeong Lee"
+date: "9/30/2016"
+output: html_document
+---
+
+
+```{r, echo=FALSE}
+library(maps)
+library(geosphere)
+library(readr)
+library(dplyr)
+library(magrittr)
+library(lubridate)
+library(rgdal)
+library(raster)
+library(rgeos)
+require(ggplot2)
+library(cwhmisc)
+library(utils)
+library(rpart)
+library(stringr)
+library(hydroGOF)
+library(fields)
+library(MASS)
+library(e1071)
+library(raster)
+library(reshape2)
+library(igraph)
+library(Hmisc)
+library(randomForest)
+library(caret)
+library(leaflet)
+library(RColorBrewer)
+library(classInt)
+library(maptools)
+library(googleVis)
+library(ggmap)
+```
+
+# Random Baseline
+```{r}
+setwd("/Users/myeong/git/311/")
+
+cases = read_delim("dataverse_files/CRM Cases 2010_2014 Restricted.tab", delim = "\t",col_names = TRUE ) 
+# blocks = readOGR("tl_2016_25_bg/tl_2016_25_bg.shp", layer="tl_2016_25_bg")
+blocks = readOGR("tabblock2010_25_pophu/tabblock2010_25_pophu.shp", layer="tabblock2010_25_pophu")
+# blocks <- blocks%>% spTransform(CRS("+proj=utm +zone=32 +datum=WGS84"))
+# proj4string(blocks) = CRS("+proj=utm +zone=32 +datum=WGS84")
+
+#Block Group level
+# blocks@data$GEOID <- as.character(blocks@data$GEOID)
+# blocks@data$GEOID <- as.numeric(blocks@data$GEOID)
+# cases <- cases %>% dplyr::group_by(BG_ID_10) %>% tally
+# blocks@data <- blocks@data %>% left_join(cases, by = c("GEOID"="BG_ID_10"))
+
+#Block level
+blocks@data$BLOCKID10 <- as.character(blocks@data$BLOCKID10)
+blocks@data$BLOCKID10 <- as.numeric(blocks@data$BLOCKID10)
+cases <- cases %>% dplyr::group_by(BLK_ID_10) %>% tally
+blocks@data <- blocks@data %>% left_join(cases, by = c("BLOCKID10"="BLK_ID_10"))
+
+blocks <- blocks[!is.na(blocks@data$n),]
+
+# colfunc <- colorRampPalette(c("blue", "red"))
+# pal <- colfunc(4985)
+
+colors <- brewer.pal(9, "YlOrRd")
+brks<-classIntervals(blocks@data$n, n=9, style="quantile")
+brks<- brks$brks
+
+plot(blocks, col=colors[findInterval(blocks@data$n, brks, all.inside=TRUE)],  bg="white",lwd=0.1)
+title(paste ("Number of 311 Inqueries per Block"))
+legend(-71.0, 42.3, legend=leglabs(round(brks)), fill=colors, bty="n",x.intersp = .5, y.intersp = .5)
+
+blocks@data$normalize <- blocks@data$n / blocks@data$POP10
+
+brks<-classIntervals(blocks@data$normalize, n=9, style="quantile", na.rm=TRUE)
+brks<- brks$brks
+
+plot(blocks, col=colors[findInterval(blocks@data$normalize, brks, all.inside=TRUE)],  bg="white",lwd=0.1)
+title(paste ("Number of 311 Inqueries per Block, Normalized by Population"))
+legend(-71.0, 42.3, legend=leglabs(round(brks,digits=3)), fill=colors, bty="n",x.intersp = .5, y.intersp = .5)
+
+leaflet_map(blocks, "normalize", "normalize")
+
+leaflet_map = function(spatialDf, var, legend_title, palette = "YlGnBu",method = "quantile", n=5) {
+  feature = unlist(spatialDf@data[var])
+  
+#   spatialDf = spTransform(spatialDf, CRS("+init=epsg:4326"))
+
+  leaflet(spatialDf) %>% addProviderTiles("CartoDB.Positron") %>% 
+    addPolygons(fillColor = pal(feature,palette,method,n)(feature), weight = .2, color="white",fillOpacity = 0.6) %>%
+    addLegend(pal = pal(feature, palette,method,n),
+              values = feature,
+              position = "bottomleft",title = legend_title
+    )
+}
+
+pal <- function(x, palette = "YlGnBu",method = "quantile", n =5) {
+  by = 1/n
+  if(method == "quantile"){
+    colorBin(palette, x, bins=quantile(x, probs = seq(0, 1, by), na.rm=TRUE))
+  }
+  else {
+    colorBin(palette, x, bins=5)
+  }
+}
+```
