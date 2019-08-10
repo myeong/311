@@ -79,6 +79,7 @@ mapPoints <- ggmap(map) +
   geom_text(data=neighbor.df, aes(label = name, x = Longitude, y = Latitude)) +
   ggtitle("311 Cases") +
   theme(legend.position="bottom")
+mapPoints
 ggsave(paste0("output/", "311_cases.pdf"), mapPoints, width=9, height=9)
 
 ```
@@ -205,6 +206,7 @@ agg_table <- as.data.frame(matrix(nrow=0, ncol=4))
 colnames(agg_table) <- c("id", "norm_low", "reason", "count")
 
 for (i in socioeconomic$FID){
+  print (i)
   tryCatch({
           intersection <- raster::intersect(x = points, y = socioeconomic[socioeconomic$FID==i,])
         }, error = function(e) {
@@ -223,11 +225,23 @@ for (i in socioeconomic$FID){
   agg_table <- rbind(agg_table, agg[,c("id", "norm_low", "reason", "count")])
 }
 
-ggplot(agg_table, aes(x=reorder(reason,norm_low), y=norm_low)) + geom_boxplot() + ylim(c(0,5)) + 
-  geom_point() + ylab("Normalized Poverty Level (The higher, the poorer)") + coord_flip() + xlab("Inquiry Reason")
+c
 
-# Multivariate ANOVA
-summary(aov(norm_low ~ reason, data=agg_table))
+# Poverty vs. 311 count
+count <- agg_table %>% group_by(id) %>% summarise(norm_low=max(norm_low), count=sum(count)) 
+socioeconomic@data$FID <- as.character(socioeconomic@data$FID)
+count <- count %>% left_join(socioeconomic@data, by=c("id"="FID"))
+
+summary(lm(scale(count) ~ scale(norm_low.x), data=count))
+
+p <- ggplot(count,aes(y=scale(count), x=scale(norm_low)))
+p <- p + 
+  geom_point() + ylim(-0.5,0.6) + xlim(-0.6,1) +
+  ylab("311 Count") + geom_smooth(method='lm', formula=y~x) +
+  theme_bw() + xlab("Normalized Number of Population in Poverty")
+p
+
+
 ```
 
 
@@ -250,5 +264,43 @@ summary(aov(count ~ class, data=agg_table_class))
 
 ggplot(agg_table_class, aes(x=reorder(class,count), y=count)) + geom_boxplot()  + 
   geom_point() + ylab("The number of 311 Inquiries")  + xlab("Poverty Class (4-levels)")
+```
+
+
+# Source vs. Poverty
+```{r}
+agg_table <- as.data.frame(matrix(nrow=0, ncol=4))
+colnames(agg_table) <- c("id", "norm_low", "source", "count")
+
+for (i in socioeconomic$FID){
+  print (i)
+  tryCatch({
+          intersection <- raster::intersect(x = points, y = socioeconomic[socioeconomic$FID==i,])
+        }, error = function(e) {
+          print(paste0("Iteration ", i, ": ", e))
+          return()
+        })
+  if (nrow(intersection@data) == 0) next
+  
+  norm_low <- socioeconomic[socioeconomic$FID==i,]$norm_low
+  
+  # Count the number of reasons of reporting per census tract
+  agg <- intersection@data %>% group_by(source) %>% summarise(count = n())
+  agg$norm_low <- norm_low
+  agg$id <- i
+  
+  agg_table <- rbind(agg_table, agg[,c("id", "norm_low", "source", "count")])
+}
+
+agg_table$id <- as.factor(agg_table$id)
+
+p <- ggplot(agg_table,aes(x = scale(norm_low), y=scale(count), colour=source, shape=source))
+p <- p + 
+  geom_point() + ylim(-0.4,1.5) +xlim(-0.6,1.6)+
+  geom_smooth(method='lm', formula=y~x) +
+  ylab("Number of Count") + 
+  theme_bw() + xlab("Poverty")
+p
+
 ```
 
