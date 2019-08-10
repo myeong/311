@@ -42,7 +42,7 @@ register_google(key="AIzaSyD36Jq79omYvK4q160enCpKcdzeuhlCu7U")
 
 # Random Baseline
 ```{r, echo=FALSE, fig.width=10,fig.height=11}
-setwd("/Users/myeong/git/311/")
+setwd("~/git/311/")
 
 cases = read_delim("dataverse_files/311_open.csv", delim = ",",col_names = TRUE )
 
@@ -79,8 +79,7 @@ mapPoints <- ggmap(map) +
   geom_text(data=neighbor.df, aes(label = name, x = Longitude, y = Latitude)) +
   ggtitle("311 Cases") +
   theme(legend.position="bottom")
-mapPoints
-
+ggsave(paste0("output/", "311_cases.pdf"), mapPoints, width=9, height=9)
 
 ```
 

@@ -3,3 +3,5 @@ tabblock*/*
 *.csv
 dataverse_files/*
 020919_beta_blocks_files/*
+.RData
+.Rhistory
