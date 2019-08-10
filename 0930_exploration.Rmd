@@ -41,7 +41,7 @@ library(ggmap)
 
 # Random Baseline
 ```{r}
-setwd("/Users/myeong/git/311/")
+setwd("~/git/311/")
 
 cases = read_delim("dataverse_files/CRM Cases 2010_2014 Restricted.tab", delim = "\t",col_names = TRUE ) 
 # blocks = readOGR("tl_2016_25_bg/tl_2016_25_bg.shp", layer="tl_2016_25_bg")
@@ -83,7 +83,6 @@ plot(blocks, col=colors[findInterval(blocks@data$normalize, brks, all.inside=TRU
 title(paste ("Number of 311 Inqueries per Block, Normalized by Population"))
 legend(-71.0, 42.3, legend=leglabs(round(brks,digits=3)), fill=colors, bty="n",x.intersp = .5, y.intersp = .5)
 
-leaflet_map(blocks, "normalize", "normalize")
 
 leaflet_map = function(spatialDf, var, legend_title, palette = "YlGnBu",method = "quantile", n=5) {
   feature = unlist(spatialDf@data[var])
@@ -107,4 +106,6 @@ pal <- function(x, palette = "YlGnBu",method = "quantile", n =5) {
     colorBin(palette, x, bins=5)
   }
 }
+
+leaflet_map(blocks, "normalize", "normalize")
 ```
